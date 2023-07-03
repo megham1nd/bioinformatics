@@ -1,0 +1,52 @@
+ ##FINDING SEQUENCE HOMOLOGS##
+ #running a blast search against a protein database using the CRIPAK query sequence 
+ 1054  ncbi-acc-download -F fasta -m protein XP_001618819.2
+ 1058  blastp -db allprotein.fas -query XP_001618819.2.fa -outfmt 0 -max_hsps 1 -out cripak.blastp.typical.out
+ #formatting blast output file
+ 1061  blastp -db allprotein.fas -query XP_001618819.2.fa -outfmt "6 sseqid pident length mismatch gapopen evalue bitscore pident stitle"  -max_hsps 1 -out cripak.blastp.detail.out
+ #removing putative homologs with an e value less than 1e-10
+ 1068  awk '{if ($6<0.0000000001)print $1 }' cripak.blastp.detail.out > cripak.blastp.detail.filtered.out
+ #performing multiple sequence alignment
+ 1073  seqkit grep --pattern-file cripak.blastp.detail.filtered.out allprotein.fas > cripak.blastp.detail.filtered.fas
+ 1074  muscle -in cripak.blastp.detail.filtered.fas -out cripak.blastp.detail.filtered.aligned.fas
+ #alignment statistics
+ 1076  t_coffee -other_pg seq_reformat -in cripak.blastp.detail.filtered.aligned.fas -output sim
+ #viewing alignment in alv
+ 1078  alv -k cripak.blastp.detail.filtered.aligned.fas | less -r
+ 1079  alv -kli --majority cripak.blastp.detail.filtered.aligned.fas | less -RS
+ #removing highly gapped regions
+ 1082  t_coffee -other_pg seq_reformat -in cripak.blastp.detail.filtered.aligned.fas -action +rm_gap 50 -out cripak.blastp.detail.filtered.aligned.r50.fas
+ 1083  alv -kli --majority cripak.blastp.detail.filtered.aligned.r50.fas | less -RS
+ 
+ ##CONSTRUCTING A PHYLOGENETIC TREE##
+ #formatting annotations
+ 76    sed "s/ /_/g" cripak.blastp.detail.filtered.aligned.fas > cripak.blastp.detail.filtered.aligned_.fas
+ #finding maximum likelihood tree estimate
+ 77    iqtree -s cripak.blastp.detail.filtered.aligned_.fas -nt 2
+ #midpoint rerooting
+ 79    gotree reroot midpoint -i cripak.blastp.detail.filtered.aligned_.fas.treefile -o cripak.blastp.detail.filtered.aligned_.fas.midpoint.treefile
+ #viewing rooted tree in command line
+ 80    nw_display -s cripak.blastp.detail.filtered.aligned_.fas.midpoint.treefile -w 1000 -b 'opacity:0' > cripak.blastp.detail.filtered.aligned_.fas.midpoint.treefile.svg
+
+ ##TREE RECONCILIATION##
+ #species and gene reconciliation tree
+ 1091  java -jar ~/tools/Notung-3.0-beta/Notung-3.0-beta.jar -s speciesTreeBilateriaCnidaria.tre -g cripak.genes.tre --reconcile --speciestag prefix --savepng --events
+ #transforming reconciliation into an integrated phylogenetic tree -> gene reconciliation with species tree
+ 1095  python2.7 ~/tools/recPhyloXML/python/NOTUNGtoRecPhyloXML.py -g cripak.genes.tre.reconciled.0 --include.species
+ 1097  thirdkind -f cripak.genes.tre.reconciled.0.xml -o cripak.genes.tre.reconciled.svg
+ 
+ ##BOOTSTRAP SUPPORT EVALUATION##
+ #how well is each node supported based on bootstrap replicates?
+ 1106  iqtree -s cripak.blastp.detail.filtered.aligned_.fas -bb 1000 -nt 2 -m MFP -t cripak.genes.tre -pre cripak.genes.ufboot
+ #rerooting optimal tree
+ 1110  gotree reroot midpoint -i cripak.genes.ufboot.treefile -o cripak.genes.rerooted.midpoint.ufboot
+ 
+ ##DOMAIN PRESERVATION##
+ #sequence analysis on interproscan servers
+ 53    iprscan5   --email megha.rao@stonybrook.edu --multifasta --useSeqId --sequence   cripak.blastp.detail.filtered.fas
+ #concatenation of results and filtering to include only PFAM domains
+ 55    cat ~/labs/lab8-L02-megham1ndd/cripakfamily/*.tsv.tsv > ~/labs/lab8-L02-megham1ndd/cripkafamily.domains.all.tsv
+ 66    grep Pfam ~/labs/lab8-L02-megham1ndd/cripakfamily.domains.all.tsv > ~/labs/lab8-L02-megham1ndd/cripakfamily.domains.pfam.tsv
+ #fixing output format
+ 68    awk 'BEGIN{FS="\t"} {print $1"\t"$3"\t"$7"@"$8"@"$5}' ~/labs/lab8-L02-megham1ndd/cripakfamily.domains.pfam.tsv | datamash -sW --group=1,2 collapse 3 | sed 's/,/\t/g' | sed 's/@/,/g' > ~/labs/lab8-L02-megham1ndd/cripakfamily.domains.pfam.evol.tsv
+ 
